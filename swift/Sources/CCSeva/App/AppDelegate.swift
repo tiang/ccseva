@@ -81,11 +81,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.$menuBarTitle
             .receive(on: DispatchQueue.main)
             .sink { [weak self] title in
-                self?.statusItem?.button?.title = title
+                self?.applyStatusTitle(title, pace: store.menuBarPace)
+            }
+            .store(in: &cancellables)
+
+        store.$menuBarPace
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] pace in
+                self?.applyStatusTitle(store.menuBarTitle, pace: pace)
             }
             .store(in: &cancellables)
 
         store.start()
+    }
+
+    /// Fork: amber/red menu bar figure when the weekly run rate will exceed the limit.
+    private func applyStatusTitle(_ title: String, pace: WeeklyPace) {
+        guard let button = statusItem?.button else { return }
+        let color: NSColor?
+        switch pace {
+        case .normal: color = nil
+        case .amber: color = NSColor(srgbRed: 0.96, green: 0.62, blue: 0.04, alpha: 1)
+        case .red: color = NSColor(srgbRed: 0.94, green: 0.27, blue: 0.27, alpha: 1)
+        }
+        guard let color else {
+            button.attributedTitle = NSAttributedString(string: "")
+            button.title = title
+            return
+        }
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .foregroundColor: color,
+                .font: NSFont.menuBarFont(ofSize: 0),
+            ]
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {

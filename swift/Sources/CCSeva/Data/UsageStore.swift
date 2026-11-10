@@ -3,6 +3,10 @@ import Combine
 import Foundation
 
 /// How the limit gauges are currently sourced.
+enum WeeklyPace: Equatable {
+    case normal, amber, red
+}
+
 enum LimitsState: Equatable {
     /// Server data from the OAuth usage endpoint.
     case live
@@ -26,6 +30,8 @@ final class UsageStore: ObservableObject {
     @Published private(set) var limits: LimitsSnapshot?
     @Published private(set) var limitsState: LimitsState = .estimated(reason: "not fetched yet")
     @Published private(set) var menuBarTitle: String = "--"
+    /// Fork: weekly pace colouring for the menu bar figure.
+    @Published private(set) var menuBarPace: WeeklyPace = .normal
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastRefreshAt: Date?
     @Published private(set) var settings: AppSettings
@@ -394,7 +400,30 @@ final class UsageStore: ObservableObject {
     // MARK: - Menu bar
 
     private func updateMenuBarTitle() {
+        menuBarPace = weeklyPace()
         menuBarTitle = computeMenuBarTitle()
+    }
+
+    /// Fork: projects the live weekly utilization to the end of the 7-day
+    /// window at the average rate so far. Amber when the projection reaches
+    /// the limit before reset, red when it overshoots by 25% or more (or the
+    /// week is already 90% used).
+    func weeklyProjection() -> Double? {
+        guard limitsState.isLive, let week = limits?.sevenDay,
+              let resetsAt = week.resetsAt else { return nil }
+        let windowLength: TimeInterval = 7 * 24 * 3600
+        let elapsed = windowLength - resetsAt.timeIntervalSinceNow
+        // Too early in the window to extrapolate meaningfully.
+        guard elapsed >= 6 * 3600 else { return week.utilization }
+        return week.utilization / min(elapsed / windowLength, 1)
+    }
+
+    private func weeklyPace() -> WeeklyPace {
+        guard limitsState.isLive, let week = limits?.sevenDay else { return .normal }
+        let projected = weeklyProjection() ?? week.utilization
+        if week.utilization >= 90 || projected >= 125 { return .red }
+        if projected >= 100 { return .amber }
+        return .normal
     }
 
     private func computeMenuBarTitle() -> String {
@@ -409,6 +438,11 @@ final class UsageStore: ObservableObject {
     }
 
     private func percentageTitle() -> String {
+        // Fork: lead with the live weekly figure; plans without a 5-hour
+        // window return five_hour: null, which left this showing a local guess.
+        if limitsState.isLive, let week = limits?.sevenDay {
+            return "\(Int(week.utilization.rounded()))% wk"
+        }
         guard let (value, _) = fiveHourUtilization() else { return "--" }
         let warning = value >= 90 ? " ⚠" : ""
         return "\(Int(value.rounded()))%\(warning)"
