@@ -224,6 +224,9 @@ final class UsageStore: ObservableObject {
                     appVersion: DirectoryIdentity.appVersion
                 )
                 guard !Task.isCancelled else { return }
+                guard DirectoryClient.isTrustedVerificationURL(pairing.verificationUriComplete) else {
+                    throw DirectoryClientError.invalidResponse
+                }
                 directoryPairing = pairing
                 NSWorkspace.shared.open(pairing.verificationUriComplete)
 
@@ -255,7 +258,8 @@ final class UsageStore: ObservableObject {
     }
 
     func openDirectoryPairingPage() {
-        if let url = directoryPairing?.verificationUriComplete {
+        if let url = directoryPairing?.verificationUriComplete,
+           DirectoryClient.isTrustedVerificationURL(url) {
             NSWorkspace.shared.open(url)
         }
     }

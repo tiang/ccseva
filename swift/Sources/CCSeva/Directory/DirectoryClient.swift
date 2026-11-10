@@ -63,11 +63,19 @@ struct DirectoryClient {
         }
     }
 
-    static var configuredBaseURL: URL {
-        guard let value = ProcessInfo.processInfo.environment["CCSEVA_DIRECTORY_URL"],
-              let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? "")
-        else { return productionURL }
-        return url
+    /// Fork hardening: the CCSEVA_DIRECTORY_URL environment override is removed,
+    /// so directory traffic (and its bearer token) can only go to production.
+    static var configuredBaseURL: URL { productionURL }
+
+    /// Fork hardening: only an https URL on the directory host may be opened in
+    /// the browser. The pairing URL comes from the server response, so it is
+    /// checked before it reaches NSWorkspace.
+    static func isTrustedVerificationURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              let expected = productionURL.host?.lowercased()
+        else { return false }
+        return host == expected || host.hasSuffix("." + expected)
     }
 
     func requestPairing(installationId: String, deviceName: String, appVersion: String) async throws -> DirectoryPairing {
